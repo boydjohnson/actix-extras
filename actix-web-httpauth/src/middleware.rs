@@ -179,10 +179,17 @@ where
         &mut self,
         ctx: &mut Context<'_>,
     ) -> Poll<Result<(), Self::Error>> {
-        self.service
-            .try_lock()
-            .expect("AuthenticationMiddleware was called already")
-            .poll_ready(ctx)
+        match self.service
+            .lock()
+            .poll_unpin(ctx)
+            .map(|mut s| s.poll_ready(ctx)) {
+                Poll::Ready(inner) => {
+                    inner
+                },
+                Poll::Pending => {
+                    Poll::Pending
+                }
+            }
     }
 
     fn call(&mut self, req: Self::Request) -> Self::Future {
