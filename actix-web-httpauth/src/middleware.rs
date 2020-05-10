@@ -1,5 +1,6 @@
 //! HTTP Authentication middleware.
 
+use std::cell::RefCell;
 use std::marker::PhantomData;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -8,7 +9,6 @@ use actix_service::{Service, Transform};
 use actix_web::dev::{ServiceRequest, ServiceResponse};
 use actix_web::Error;
 use futures::future::{self, Future, FutureExt, LocalBoxFuture, TryFutureExt};
-use futures::lock::Mutex;
 use futures::task::{Context, Poll};
 
 use crate::extractors::{basic, bearer, AuthExtractor};
@@ -141,7 +141,7 @@ where
 
     fn new_transform(&self, service: S) -> Self::Future {
         future::ok(AuthenticationMiddleware {
-            service: Arc::new(Mutex::new(service)),
+            service: Arc::new(RefCell::new(service)),
             process_fn: self.process_fn.clone(),
             _extractor: PhantomData,
         })
@@ -153,7 +153,7 @@ pub struct AuthenticationMiddleware<S, F, T>
 where
     T: AuthExtractor,
 {
-    service: Arc<Mutex<S>>,
+    service: Arc<RefCell<S>>,
     process_fn: Arc<F>,
     _extractor: PhantomData<T>,
 }
@@ -180,8 +180,7 @@ where
         ctx: &mut Context<'_>,
     ) -> Poll<Result<(), Self::Error>> {
         self.service
-            .try_lock()
-            .expect("AuthenticationMiddleware was called already")
+            .borrow_mut()
             .poll_ready(ctx)
     }
 
@@ -193,8 +192,8 @@ where
         async move {
             let (req, credentials) = Extract::<T>::new(req).await?;
             let req = process_fn(req, credentials).await?;
-            let mut service = inner.lock().await;
-            service.call(req).await
+            
+            inner.borrow_mut().call(req).await
         }
         .boxed_local()
     }
