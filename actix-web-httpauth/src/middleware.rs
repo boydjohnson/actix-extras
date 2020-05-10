@@ -3,12 +3,13 @@
 use std::marker::PhantomData;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::future::Future;
 
 use actix_service::{Service, Transform};
 use actix_web::dev::{ServiceRequest, ServiceResponse};
 use actix_web::Error;
-use futures::future::{self, Future, FutureExt, LocalBoxFuture, TryFutureExt};
-use futures::lock::Mutex;
+use futures::future::{self, FutureExt, LocalBoxFuture, TryFutureExt};
+use future_parking_lot::mutex::{Mutex, FutureLockable};
 use futures::task::{Context, Poll};
 
 use crate::extractors::{basic, bearer, AuthExtractor};
@@ -180,8 +181,10 @@ where
         ctx: &mut Context<'_>,
     ) -> Poll<Result<(), Self::Error>> {
         match self.service
-            .lock()
-            .poll_unpin(ctx)
+            .future_lock()
+            .boxed_local()
+            .as_mut()
+            .poll(ctx)
             .map(|mut s| s.poll_ready(ctx)) {
                 Poll::Ready(inner) => {
                     inner
@@ -200,7 +203,7 @@ where
         async move {
             let (req, credentials) = Extract::<T>::new(req).await?;
             let req = process_fn(req, credentials).await?;
-            let mut service = inner.lock().await;
+            let mut service = inner.future_lock().await;
             service.call(req).await
         }
         .boxed_local()
