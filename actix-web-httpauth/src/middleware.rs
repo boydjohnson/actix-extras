@@ -184,6 +184,7 @@ where
             .poll_unpin(ctx)
             .map(|mut s| s.poll_ready(ctx)) {
                 Poll::Ready(inner) => {
+                    log::info!("Lock has been awaited, and service.poll_ready is Ready.");
                     inner
                 },
                 Poll::Pending => {
@@ -200,7 +201,9 @@ where
         async move {
             let (req, credentials) = Extract::<T>::new(req).await?;
             let req = process_fn(req, credentials).await?;
+            log::info!("Awaiting lock in call.");
             let mut service = inner.lock().await;
+            log::info!("Lock acquired through awaiting it.");
             service.call(req).await
         }
         .boxed_local()
